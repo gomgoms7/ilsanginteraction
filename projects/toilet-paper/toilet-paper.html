@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Interaction Art - Easing Pull & Alignment Fix</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <style>
+        body { margin: 0; background-color: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; touch-action: none; }
+        #app-container { position: relative; background-color: #aebfd1; width: 100%; max-width: 500px; aspect-ratio: 9 / 16; overflow: hidden; box-shadow: 0 0 50px rgba(0,0,0,0.5); cursor: grab; }
+        #app-container:active { cursor: grabbing; }
+        canvas { display: block; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; }
+        
+        @keyframes shake { 0% { transform: translate(1px, 1px) } 25% { transform: translate(-2px, -1px) } 50% { transform: translate(1px, 2px) } 75% { transform: translate(-1px, -1px) } 100% { transform: translate(0px, 0px) } }
+        .shake-anim { animation: shake 0.15s cubic-bezier(.36,.07,.19,.97) both; }
+
+        .touch-ripple { position: absolute; width: 40px; height: 40px; background-color: rgba(128, 128, 128, 0.6); border-radius: 50%; transform: translate(-50%, -50%) scale(0.5); pointer-events: none; z-index: 10; transition: transform 0.2s ease-out, opacity 0.3s ease-out; opacity: 0; }
+        .touch-ripple.active { opacity: 1; transform: translate(-50%, -50%) scale(1.5); }
+        .touch-ripple.fade { opacity: 0; transform: translate(-50%, -50%) scale(2); }
+
+        #tp-roll-container { position: absolute; top: 40px; left: 50%; transform: translateX(-50%); width: 40%; z-index: 5; pointer-events: none; }
+        /* 두루마리 휴지 자체에서 캔버스 쪽으로 그림자가 떨어지도록 CSS 필터 추가 */
+        #tp-roll { width: 100%; height: auto; filter: drop-shadow(0 15px 15px rgba(0, 0, 0, 0.6)); }
+        @keyframes rollJiggle { 0% { transform: translateY(0); } 50% { transform: translateY(3px) rotate(1deg); } 100% { transform: translateY(0); } }
+        .jiggle-anim { animation: rollJiggle 0.15s ease-in-out; }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="tp-roll-container"><img src="resources/image1.png" id="tp-roll" alt="Toilet Paper Roll"></div>
+    </div>
+
+    <script>
+        const container = document.getElementById('app-container');
+
+        // 외부 텍스처 이미지 로드
+        const paperImage = new Image();
+        paperImage.src = 'resources/image2.png';
+
+        let currentRipple = null;
+        function updateRipple(x, y, isStart = false) {
+            const bounds = container.getBoundingClientRect();
+            const localX = x - bounds.left;
+            const localY = y - bounds.top;
+
+            if (isStart) {
+                if (currentRipple) currentRipple.remove();
+                currentRipple = document.createElement('div');
+                currentRipple.className = 'touch-ripple';
+                container.appendChild(currentRipple);
+                requestAnimationFrame(() => currentRipple.classList.add('active'));
+            }
+            if (currentRipple) { currentRipple.style.left = `${localX}px`; currentRipple.style.top = `${localY}px`; }
+        }
+        function endRipple() {
+            if (currentRipple) { const r = currentRipple; r.classList.remove('active'); r.classList.add('fade'); setTimeout(() => r.remove(), 300); currentRipple = null; }
+        }
+
+        const Engine = Matter.Engine, Render = Matter.Render, Runner = Matter.Runner, Constraint = Matter.Constraint, World = Matter.World, Bodies = Matter.Bodies, Body = Matter.Body;
+        const engine = Engine.create(); const world = engine.world;
+        
+        const rect = container.getBoundingClientRect(); 
+        const width = rect.width || container.clientWidth || window.innerWidth || 400; 
+        const height = rect.height || container.clientHeight || window.innerHeight || 800;
+
+        const render = Render.create({ element: container, engine: engine, options: { width, height, wireframes: false, background: 'transparent' } });
+
+        const paperGroup = Body.nextGroup(true); 
+        const paperWidth = width * 0.35; const segmentHeight = 105; 
+        
+        let segments = []; let joints = []; 
+
+        const SPAWN_Y = 110;
+        let topAnchor;
+
+        function createInitialRoll() {
+            let prevBody = null;
+            for(let i=0; i<7; i++) {
+                let seg = Bodies.rectangle(width / 2, SPAWN_Y + segmentHeight/2 + i*(segmentHeight+2), paperWidth, segmentHeight, { collisionFilter: { group: paperGroup }, frictionAir: 0.05, render: { visible: false } });
+                segments.push(seg); World.add(world, seg);
+
+                if (i === 0) {
+                    topAnchor = Constraint.create({ pointA: { x: width / 2, y: SPAWN_Y }, bodyB: seg, pointB: { x: 0, y: -segmentHeight/2 }, stiffness: 1, render: { visible: false } });
+                    World.add(world, topAnchor);
+                } else {
+                    let cL = Constraint.create({ bodyA: prevBody, bodyB: seg, pointA: { x: -paperWidth/2 + 5, y: segmentHeight/2 }, pointB: { x: -paperWidth/2 + 5, y: -segmentHeight/2 }, stiffness: 0.9, render: { visible: false } });
+                    let cR = Constraint.create({ bodyA: prevBody, bodyB: seg, pointA: { x: paperWidth/2 - 5, y: segmentHeight/2 }, pointB: { x: paperWidth/2 - 5, y: -segmentHeight/2 }, stiffness: 0.9, render: { visible: false } });
+                    joints.push({ bodyA: prevBody, bodyB: seg, cLeft: cL, cRight: cR, leftTorn: false, rightTorn: false });
+                    World.add(world, [cL, cR]);
+                }
+                prevBody = seg;
+            }
+        }
+        createInitialRoll();
+        for(let i=0; i<60; i++) Engine.update(engine, 16.666); 
+
+        function dispensePaper(overshoot = 0) {
+            if (segments.length === 0) return; 
+            
+            let oldTop = segments[0];
+
+            let newY = SPAWN_Y + segmentHeight/2 + overshoot;
+            let newTop = Bodies.rectangle(width / 2, newY, paperWidth, segmentHeight, { collisionFilter: { group: paperGroup }, frictionAir: 0.03, render: { visible: false } });
+            segments.unshift(newTop); World.add(world, newTop);
+
+            let cL = Constraint.create({ bodyA: newTop, bodyB: oldTop, pointA: { x: -paperWidth/2 + 5, y: segmentHeight/2 }, pointB: { x: -paperWidth/2 + 5, y: -segmentHeight/2 }, stiffness: 0.9, render: { visible: false } });
+            let cR = Constraint.create({ bodyA: newTop, bodyB: oldTop, pointA: { x: paperWidth/2 - 5, y: segmentHeight/2 }, pointB: { x: paperWidth/2 - 5, y: -segmentHeight/2 }, stiffness: 0.9, render: { visible: false } });
+            
+            joints.unshift({ bodyA: newTop, bodyB: oldTop, cLeft: cL, cRight: cR, leftTorn: false, rightTorn: false });
+            World.add(world, [cL, cR]);
+
+            World.remove(world, topAnchor);
+            topAnchor = Constraint.create({ pointA: { x: width / 2, y: SPAWN_Y + overshoot }, bodyB: newTop, pointB: { x: 0, y: -segmentHeight/2 }, stiffness: 1, render: { visible: false } });
+            World.add(world, topAnchor);
+            
+            const tpRoll = document.getElementById('tp-roll');
+            if(tpRoll) { tpRoll.classList.remove('jiggle-anim'); void tpRoll.offsetWidth; tpRoll.classList.add('jiggle-anim'); }
+        }
+
+        function spawnParticles(x, y) {
+            for(let i=0; i<10; i++) {
+                let particle = Bodies.circle(x, y, Math.random() * 4 + 2, { render: { fillStyle: '#ffffff' }, frictionAir: 0.02, collisionFilter: { group: paperGroup } });
+                Body.setVelocity(particle, { x: (Math.random() - 0.5) * 20, y: (Math.random() - 0.5) * 20 });
+                World.add(world, particle);
+                setTimeout(() => { World.remove(world, particle); }, 1000 + Math.random() * 500);
+            }
+        }
+
+        function getCorner(body, signX, signY) {
+            let dx = signX * paperWidth/2; 
+            if (signX < 0) { dx += 4; } // 휴지 왼쪽 렌더링 마스크를 4px 안쪽으로 좁힘
+            let dy = signY * segmentHeight/2;
+            let cos = Math.cos(body.angle); let sin = Math.sin(body.angle);
+            return { x: body.position.x + dx*cos - dy*sin, y: body.position.y + dx*sin + dy*cos };
+        }
+
+        let startX = 0, startY = 0; let lastX = 0, lastY = 0; 
+        let currentGlobalY = 0; 
+        let isDragging = false; let actionLocked = null; 
+        let dragStartTime = 0; 
+
+        container.addEventListener('pointerdown', (e) => { 
+            isDragging = true; actionLocked = null; 
+            startX = e.clientX; startY = e.clientY; 
+            lastX = e.clientX; lastY = e.clientY;
+            currentGlobalY = e.clientY;
+            dragStartTime = Date.now(); 
+            updateRipple(e.clientX, e.clientY, true); 
+        });
+
+        container.addEventListener('pointermove', (e) => {
+            if (!isDragging) return;
+            const currentX = e.clientX; const currentY = e.clientY; 
+            currentGlobalY = currentY; 
+
+            const stepX = currentX - lastX; const stepY = currentY - lastY;
+            const speed = Math.hypot(stepX, stepY); 
+            
+            lastX = currentX; lastY = currentY;
+            updateRipple(currentX, currentY);
+
+            if (actionLocked === 'done') return;
+
+            if (speed > 22) {
+                let chunkCount = 1;
+                if (speed > 25) chunkCount = 2;
+                if (speed > 30) chunkCount = 3;
+                if (speed > 35) chunkCount = 4;
+
+                let lowestIntactIndex = -1;
+                let fallbackIndex = -1; 
+                for (let i = joints.length - 1; i >= 0; i--) {
+                    if (!joints[i].leftTorn && !joints[i].rightTorn) {
+                        if (fallbackIndex === -1) fallbackIndex = i;
+                        if (joints[i].bodyB.position.y < height + 20) {
+                            lowestIntactIndex = i;
+                            break;
+                        }
+                    }
+                }
+                if (lowestIntactIndex === -1) lowestIntactIndex = fallbackIndex;
+
+                if (lowestIntactIndex !== -1) {
+                    let targetIndex = Math.max(0, lowestIntactIndex - chunkCount + 1);
+                    let targetJoint = joints[targetIndex];
+                    
+                    if (!targetJoint.leftTorn) { World.remove(world, targetJoint.cLeft); targetJoint.leftTorn = true; }
+                    if (!targetJoint.rightTorn) { World.remove(world, targetJoint.cRight); targetJoint.rightTorn = true; }
+                    
+                    Body.setVelocity(targetJoint.bodyB, { x: stepX * 0.4, y: Math.max(speed * 0.5, 10) });
+                    Body.setAngularVelocity(targetJoint.bodyB, stepX * 0.02);
+                    
+                    const bounds = container.getBoundingClientRect();
+                    spawnParticles(currentX - bounds.left, currentY - bounds.top);
+                }
+
+                actionLocked = 'done';
+                if(currentRipple) currentRipple.style.backgroundColor = 'rgba(255, 50, 50, 0.8)';
+                container.classList.remove('shake-anim'); void container.offsetWidth; container.classList.add('shake-anim');
+            } 
+            else if (actionLocked !== 'pull' && Math.abs(currentY - startY) > 10) {
+                actionLocked = 'pull';
+            }
+        });
+
+        container.addEventListener('pointerup', () => { isDragging = false; endRipple(); });
+        container.addEventListener('pointerleave', () => { isDragging = false; endRipple(); });
+
+        let pullFrames = 0;
+        Matter.Events.on(engine, 'beforeUpdate', () => {
+            if (isDragging && actionLocked === 'pull') {
+                pullFrames++;
+                
+                let pullDistance = currentGlobalY - startY;
+                if (pullDistance < 0) pullDistance = 0;
+
+                let feedSpeed = Math.max(2, pullDistance * 0.03 + pullFrames * 0.05);
+                feedSpeed = Math.min(feedSpeed, 25); 
+
+                topAnchor.pointA.y += feedSpeed;
+                
+                if (topAnchor.pointA.y >= SPAWN_Y + segmentHeight) { 
+                    let overshoot = topAnchor.pointA.y - (SPAWN_Y + segmentHeight);
+                    dispensePaper(overshoot); 
+                }
+            } else { 
+                pullFrames = 0;
+                if (topAnchor.pointA.y > SPAWN_Y) {
+                    topAnchor.pointA.y = Math.max(SPAWN_Y, topAnchor.pointA.y - 3);
+                }
+            }
+        });
+
+        Matter.Events.on(engine, 'afterUpdate', () => {
+            for (let i = segments.length - 1; i >= 0; i--) {
+                if (segments[i].position.y > height + 1500) { 
+                    World.remove(world, segments[i]); 
+                    segments[i].isRemoved = true; 
+                    segments.splice(i, 1); 
+                }
+            }
+            for (let i = joints.length - 1; i >= 0; i--) {
+                let j = joints[i];
+                if (j.bodyA.isRemoved || j.bodyB.isRemoved) {
+                    if (!j.leftTorn) World.remove(world, j.cLeft);
+                    if (!j.rightTorn) World.remove(world, j.cRight);
+                    joints.splice(i, 1);
+                }
+            }
+        });
+
+        Matter.Events.on(render, 'afterRender', function() {
+            if (segments.length === 0) return;
+
+            const ctx = render.context;
+
+            let chunks = []; let currentChunk = [segments[0]];
+            for (let i = 1; i < segments.length; i++) {
+                let j = joints.find(jnt => (jnt.bodyA === segments[i-1] && jnt.bodyB === segments[i]) || (jnt.bodyA === segments[i] && jnt.bodyB === segments[i-1]));
+                if (j && (!j.leftTorn || !j.rightTorn)) currentChunk.push(segments[i]); 
+                else { chunks.push(currentChunk); currentChunk = [segments[i]]; }
+            }
+            if (currentChunk.length > 0) chunks.push(currentChunk);
+
+            if (paperImage.complete && paperImage.naturalHeight !== 0) {
+                for (const chunk of chunks) {
+                    if (chunk.length === 0) continue;
+
+                    let n = chunk.length;
+                    let lefts = []; let rights = [];
+                    for (let k = 0; k < n; k++) {
+                        let s = chunk[k];
+                        if (k === 0) {
+                            let tl = getCorner(s, -1, -1); let tr = getCorner(s, 1, -1);
+                            if (s === segments[0]) { tl.y = 80; tr.y = 80; }
+                            lefts.push(tl); rights.push(tr);
+                        } else {
+                            let j = joints.find(jnt => (jnt.bodyA === chunk[k-1] && jnt.bodyB === s) || (jnt.bodyA === s && jnt.bodyB === chunk[k-1]));
+                            if (j.leftTorn) lefts.push(getCorner(s, -1, -1));
+                            if (j.rightTorn) rights.push(getCorner(s, 1, -1));
+                        }
+                        if (k === n - 1) {
+                            lefts.push(getCorner(s, -1, 1)); rights.push(getCorner(s, 1, 1));
+                        } else {
+                            let j = joints.find(jnt => (jnt.bodyA === s && jnt.bodyB === chunk[k+1]) || (jnt.bodyA === chunk[k+1] && jnt.bodyB === s));
+                            if (j.leftTorn) { lefts.push(getCorner(s, -1, 1)); } 
+                            else { let p1 = getCorner(s, -1, 1); let p2 = getCorner(chunk[k+1], -1, -1); lefts.push({ x: (p1.x + p2.x)/2, y: (p1.y + p2.y)/2 }); }
+
+                            if (j.rightTorn) { rights.push(getCorner(s, 1, 1)); } 
+                            else { let p1 = getCorner(s, 1, 1); let p2 = getCorner(chunk[k+1], 1, -1); rights.push({ x: (p1.x + p2.x)/2, y: (p1.y + p2.y)/2 }); }
+                        }
+                    }
+
+                    ctx.save();
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(lefts[0].x, lefts[0].y);
+                    for (let i = 1; i < lefts.length; i++) ctx.lineTo(lefts[i].x, lefts[i].y);
+                    for (let i = rights.length - 1; i >= 0; i--) ctx.lineTo(rights[i].x, rights[i].y);
+                    ctx.closePath();
+                    
+                    ctx.shadowColor = "rgba(0, 0, 0, 0.3)"; ctx.shadowBlur = 15; ctx.shadowOffsetY = 5;
+                    ctx.fillStyle = "#ffffff";
+                    ctx.fill();
+                    ctx.shadowColor = "transparent";
+
+                    // 외곽선 영역으로 클리핑 마스크 적용
+                    ctx.clip();
+
+                    for (let k = 0; k < n; k++) {
+                        let segment = chunk[k];
+                        ctx.save();
+                        ctx.translate(segment.position.x, segment.position.y);
+                        ctx.rotate(segment.angle);
+                        
+                        // 탄성에 의해 이미지가 중심을 기준으로 위아래로 어긋나는 현상(절취선 불일치)을 막기 위해 
+                        // 늘어나는 높이 대신 원래의 물리적 고정 높이(segmentHeight)를 사용하고, 최소한의 여백만 줍니다.
+                        let bleedX = 2; 
+                        let bleedY = 2; 
+                        
+                        let drawW = paperWidth + bleedX * 2;
+                        let drawH = segmentHeight + bleedY * 2;
+
+                        ctx.drawImage(paperImage, -drawW / 2, -drawH / 2, drawW, drawH);
+                        
+                        let intensity = Math.abs(Math.cos(segment.angle)); 
+                        ctx.fillStyle = `rgba(0, 0, 0, ${0.15 * (1 - intensity)})`;
+                        ctx.fillRect(-drawW / 2, -drawH / 2, drawW, drawH);
+                        
+                        ctx.restore();
+                    }
+
+                    ctx.lineWidth = 2.5; ctx.strokeStyle = "rgba(100, 100, 100, 0.3)"; ctx.setLineDash([8, 8]); 
+                    for (let k = 0; k < n - 1; k++) {
+                        let j = joints.find(jnt => (jnt.bodyA === chunk[k] && jnt.bodyB === chunk[k+1]) || (jnt.bodyA === chunk[k+1] && jnt.bodyB === chunk[k]));
+                        if (!j.leftTorn) {
+                            let l = lefts[k+1]; let m = { x: (lefts[k+1].x + rights[k+1].x)/2, y: (lefts[k+1].y + rights[k+1].y)/2 };
+                            ctx.beginPath(); ctx.moveTo(l.x, l.y); ctx.lineTo(m.x, m.y); ctx.stroke();
+                        }
+                        if (!j.rightTorn) {
+                            let m = { x: (lefts[k+1].x + rights[k+1].x)/2, y: (lefts[k+1].y + rights[k+1].y)/2 }; let r = rights[k+1];
+                            ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.lineTo(r.x, r.y); ctx.stroke();
+                        }
+                    }
+                    ctx.setLineDash([]);
+
+
+                    ctx.restore();
+                }
+            }
+        });
+
+        Render.run(render); Runner.run(Runner.create(), engine);
+    </script>
+</body>
+</html>

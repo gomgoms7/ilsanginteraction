@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Interaction Art Gallery</title>
+    <style>
+        body { margin: 0; background-color: #111; color: #fff; font-family: 'Pretendard', sans-serif; display: flex; flex-direction: column; align-items: center; padding: 40px 10px; box-sizing: border-box; }
+        h1 { font-size: 22px; margin-bottom: 40px; font-weight: 300; letter-spacing: 1.5px; text-transform: uppercase; color: #eee; }
+        
+        /* [핵심 수정] 정확히 4칸(4열) 고정 그리드 레이아웃 */
+        .gallery { 
+            display: grid; 
+            grid-template-columns: repeat(4, 1fr); /* 4개의 칸을 같은 비율로 나눔 */
+            gap: 15px; /* 칸 사이 간격 */
+            width: 100%; 
+            max-width: 1200px; /* 4칸을 위해 전체 최댓값 늘림 */
+        }
+        
+        .card { 
+            background: #1e1e1e; border: 1px solid #333; border-radius: 10px; text-decoration: none; color: #fff; 
+            transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            aspect-ratio: 1 / 1; /* 4칸에서 가장 깔끔한 정사각형 비율 */
+            padding: 10px; box-sizing: border-box;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        .card:hover { transform: translateY(-3px); background: #2a2a2a; border-color: #555; }
+        
+        /* 4칸으로 좁아졌으므로 제목과 설명 폰트 크기 조절 */
+        .card h2 { margin: 0; font-size: 16px; text-align: center; line-height: 1.2; word-break: keep-all; }
+        .card p { margin: 6px 0 0 0; font-size: 11px; color: #aaa; text-align: center; }
+
+        #search-box {
+            width: 100%;
+            max-width: 600px; /* 갤러리보다 약간 작게 */
+            padding: 12px 15px;
+            margin-bottom: 40px;
+            background-color: #1e1e1e;
+            border: 1px solid #333;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 16px;
+            box-sizing: border-box;
+            outline: none;
+            transition: border-color 0.2s ease, background-color 0.2s ease;
+        }
+        #search-box::placeholder { color: #666; }
+        #search-box:focus {
+            background-color: #2a2a2a;
+            border-color: #555;
+        }
+
+        /* [반응형 수정] 스마트폰 등 좁은 화면에서는 4칸이 너무 작으므로 2칸으로 자동 조절 */
+        @media (max-width: 600px) {
+            .gallery {
+                grid-template-columns: repeat(2, 1fr); /* 모바일에선 2칸 */
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>INTERACTION ART GALLERY</h1>
+
+    <input type="text" id="search-box" placeholder="작품 이름 또는 설명 검색...">
+
+    <div class="gallery">
+        <a href="projects/toilet-paper/toilet-paper.html" class="card">
+            <h2>🧻 Infinite Tear</h2>
+            <p>시원하게 뜯으세요</p>
+        </a>
+
+         <div class="card" style="opacity: 0.3;">
+            <h2>?</h2>
+            <p>Coming Soon</p>
+        </div>
+        <div class="card" style="opacity: 0.3;">
+            <h2>?</h2>
+            <p>Coming Soon</p>
+        </div>
+        <div class="card" style="opacity: 0.3;">
+            <h2>?</h2>
+            <p>Coming Soon</p>
+        </div>
+    </div>
+
+    <script>
+        const searchBox = document.getElementById('search-box');
+        const galleryCards = document.querySelectorAll('.gallery .card');
+
+        searchBox.addEventListener('input', function() {
+            const searchTerm = searchBox.value.toLowerCase().trim();
+
+            galleryCards.forEach(card => {
+                const titleElement = card.querySelector('h2');
+                const descriptionElement = card.querySelector('p');
+                
+                if (titleElement && descriptionElement) {
+                    const title = titleElement.textContent.toLowerCase();
+                    const description = descriptionElement.textContent.toLowerCase();
+
+                    if (title.includes(searchTerm) || description.includes(searchTerm)) {
+                        card.style.display = ''; // CSS에 정의된 원래 display 속성으로 복원
+                    } else {
+                        card.style.display = 'none'; // 검색어와 일치하지 않으면 숨김
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>

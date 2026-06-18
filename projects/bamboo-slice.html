@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Interaction Art - Bamboo Slash (Fixed)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <style>
+        body { margin: 0; background-color: #0f1712; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; touch-action: none; }
+        
+        /* 대나무 숲을 연상케 하는 어둡고 은은한 배경 */
+        #app-container { position: relative; background: radial-gradient(circle at center, #1b2e21 0%, #080c09 100%); width: 100%; max-width: 500px; aspect-ratio: 9 / 16; overflow: hidden; box-shadow: 0 0 50px rgba(0,0,0,0.8); cursor: crosshair; }
+        canvas { display: block; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; }
+        
+        /* 화면 흔들림 효과 */
+        @keyframes shake { 0% { transform: translate(2px, 2px) } 25% { transform: translate(-3px, -2px) } 50% { transform: translate(2px, 3px) } 75% { transform: translate(-2px, -2px) } 100% { transform: translate(0px, 0px) } }
+        .shake-anim { animation: shake 0.15s cubic-bezier(.36,.07,.19,.97) both; }
+
+        /* 흰색 섬광 효과 (베었을 때 타격감) */
+        .flash-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #fff; z-index: 20; opacity: 0; pointer-events: none; transition: opacity 0.3s ease-out; }
+        .flash-overlay.active { opacity: 0.6; transition: none; }
+
+        /* 날카로운 슬래시(검기) 이펙트 */
+        .slash-effect {
+            position: absolute; height: 3px; background: #fff; 
+            box-shadow: 0 0 10px #fff, 0 0 20px #81c784, 0 0 40px #4caf50; 
+            transform-origin: center; pointer-events: none; z-index: 30; opacity: 1;
+            transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+        }
+        
+        .instruction { position: absolute; top: 40px; width: 100%; text-align: center; color: rgba(255,255,255,0.4); font-family: sans-serif; font-size: 14px; pointer-events: none; z-index: 10; letter-spacing: 2px; }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div class="instruction" id="guide-text">SWIPE TO SLASH</div>
+        <div class="flash-overlay" id="flash"></div>
+    </div>
+
+    <script>
+        const container = document.getElementById('app-container');
+        const flash = document.getElementById('flash');
+        const guideText = document.getElementById('guide-text');
+
+        // --- 슬래시(검기) 생성 함수 ---
+        function createSlash(startX, startY, endX, endY) {
+            let slash = document.createElement('div');
+            slash.className = 'slash-effect';
+            
+            const dx = endX - startX; const dy = endY - startY;
+            const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+            
+            const rect = container.getBoundingClientRect();
+            const length = Math.max(rect.width, rect.height) * 1.5; 
+            
+            slash.style.width = `${length}px`;
+            slash.style.left = `${(startX + endX) / 2 - length / 2}px`;
+            slash.style.top = `${(startY + endY) / 2}px`;
+            slash.style.transform = `rotate(${angle}deg) scaleY(1)`;
+            container.appendChild(slash);
+            
+            requestAnimationFrame(() => {
+                slash.style.opacity = '0';
+                slash.style.transform = `rotate(${angle}deg) scaleY(6)`;
+            });
+            setTimeout(() => slash.remove(), 200);
+        }
+
+        const Engine = Matter.Engine, Render = Matter.Render, Runner = Matter.Runner, Constraint = Matter.Constraint, World = Matter.World, Bodies = Matter.Bodies, Body = Matter.Body;
+        const engine = Engine.create(); const world = engine.world;
+        
+        const rect = container.getBoundingClientRect(); 
+        const width = rect.width || container.clientWidth || window.innerWidth || 400; 
+        const height = rect.height || container.clientHeight || window.innerHeight || 800;
+
+        const render = Render.create({ element: container, engine: engine, options: { width, height, wireframes: false, background: 'transparent' } });
+
+        const bambooGroup = Body.nextGroup(true); 
+        const segWidth = width * 0.16; 
+        const segHeight = height * 0.15; 
+        const numSegments = 10;
+        
+        let segments = []; let joints = []; 
+        let baseAnchor; let totalFed = 0;
+
+        // 대나무 초기 생성 함수
+        function buildBamboo() {
+            segments = []; joints = []; totalFed = 0;
+            const startY = height * 0.35; 
+            let prevSeg = null;
+
+            for(let i=0; i<numSegments; i++) {
+                let seg = Bodies.rectangle(width / 2, startY + i * segHeight, segWidth, segHeight, { 
+                    collisionFilter: { group: bambooGroup }, 
+                    frictionAir: 0.01, density: 0.05,
+                    render: { visible: false } 
+                });
+                
+                seg.leafDir = Math.random() > 0.5 ? 1 : -1;
+                
+                segments.push(seg); 
+                World.add(world, seg);
+
+                if (prevSeg) {
+                    let cL = Constraint.create({ bodyA: prevSeg, bodyB: seg, pointA: { x: -segWidth/2 + 5, y: segHeight/2 }, pointB: { x: -segWidth/2 + 5, y: -segHeight/2 }, stiffness: 1, render: { visible: false } });
+                    let cR = Constraint.create({ bodyA: prevSeg, bodyB: seg, pointA: { x: segWidth/2 - 5, y: segHeight/2 }, pointB: { x: segWidth/2 - 5, y: -segHeight/2 }, stiffness: 1, render: { visible: false } });
+                    joints.push({ upper: prevSeg, lower: seg, cL: cL, cR: cR, broken: false });
+                    World.add(world, [cL, cR]);
+                }
+                prevSeg = seg;
+            }
+            
+            baseAnchor = Constraint.create({ 
+                pointA: { x: width / 2, y: startY + (numSegments - 1) * segHeight }, 
+                bodyB: segments[numSegments - 1], pointB: { x: 0, y: 0 }, 
+                stiffness: 1, render: { visible: false } 
+            });
+            World.add(world, baseAnchor);
+        }
+        buildBamboo();
+
+        function spawnLeaves(x, y) {
+            for(let i=0; i<8; i++) {
+                let size = Math.random() * 6 + 3;
+                let leaf = Bodies.rectangle(x, y, size * 2, size, { 
+                    render: { fillStyle: '#81c784' }, frictionAir: 0.05, collisionFilter: { group: bambooGroup } 
+                });
+                Body.setVelocity(leaf, { x: (Math.random() - 0.5) * 15, y: (Math.random() - 0.5) * 15 });
+                Body.setAngularVelocity(leaf, (Math.random() - 0.5) * 1);
+                World.add(world, leaf);
+                setTimeout(() => { World.remove(world, leaf); }, 2000 + Math.random() * 1000);
+            }
+        }
+
+        function distToSegmentSq(p, v, w) {
+            const l2 = (v.x - w.x)**2 + (v.y - w.y)**2;
+            if (l2 === 0) return (p.x - v.x)**2 + (p.y - v.y)**2;
+            let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+            t = Math.max(0, Math.min(1, t));
+            return (p.x - (v.x + t * (w.x - v.x)))**2 + (p.y - (v.y + t * (w.y - v.y)))**2;
+        }
+
+        let startX = 0, startY = 0; let isDragging = false; 
+
+        container.addEventListener('pointerdown', (e) => { 
+            isDragging = true; startX = e.clientX; startY = e.clientY; 
+            if(guideText) guideText.style.opacity = '0';
+        });
+
+        container.addEventListener('pointermove', (e) => {
+            if (!isDragging) return;
+            const currentX = e.clientX; const currentY = e.clientY; 
+            const dist = Math.hypot(currentX - startX, currentY - startY);
+
+            if (dist > 40) {
+                const bounds = container.getBoundingClientRect();
+                const localStart = { x: startX - bounds.left, y: startY - bounds.top };
+                const localEnd = { x: currentX - bounds.left, y: currentY - bounds.top };
+
+                let dirX = localEnd.x - localStart.x; let dirY = localEnd.y - localStart.y;
+                let len = Math.hypot(dirX, dirY);
+                if (len > 0) { dirX /= len; dirY /= len; }
+                let swipeAngle = Math.atan2(dirY, dirX);
+
+                let trunkJoints = [];
+                let currNode = segments[segments.length - 1];
+                while (true) {
+                    let j = joints.find(jnt => jnt.lower === currNode && !jnt.broken);
+                    if (j && j.upper) { trunkJoints.push(j); currNode = j.upper; } else break;
+                }
+
+                for (let j of trunkJoints) {
+                    let midPt = { x: (j.upper.position.x + j.lower.position.x)/2, y: (j.upper.position.y + j.lower.position.y)/2 };
+                    let distSq = distToSegmentSq(midPt, localStart, localEnd);
+
+                    if (distSq < (segHeight * 0.7)**2) {
+                        World.remove(world, [j.cL, j.cR]);
+                        j.broken = true;
+                        
+                        j.upper.bottomCutAngle = swipeAngle;
+                        j.lower.topCutAngle = swipeAngle;
+
+                        let flyingPieces = [j.upper]; let currF = j.upper;
+                        while (true) {
+                            let jUp = joints.find(jnt => jnt.lower === currF && !jnt.broken);
+                            if (jUp && jUp.upper) { currF = jUp.upper; flyingPieces.push(currF); } else break;
+                        }
+                        for (let piece of flyingPieces) { 
+                            Body.setVelocity(piece, { x: dirX * 25 + (Math.random()-0.5)*5, y: dirY * 15 - 15 }); 
+                            Body.setAngularVelocity(piece, dirX * 0.4 + (Math.random()-0.5)*0.2); 
+                        }
+                        
+                        spawnLeaves(midPt.x, midPt.y);
+                        createSlash(localStart.x, localStart.y, localEnd.x, localEnd.y);
+                        container.classList.remove('shake-anim'); void container.offsetWidth; container.classList.add('shake-anim');
+                        flash.classList.add('active'); setTimeout(() => flash.classList.remove('active'), 50);
+                        
+                        break; 
+                    }
+                }
+                startX = currentX; startY = currentY;
+            }
+        });
+
+        container.addEventListener('pointerup', () => isDragging = false);
+        container.addEventListener('pointerleave', () => isDragging = false);
+
+        // --- 무한 자라나기 및 물리 보정 로직 ---
+        Matter.Events.on(engine, 'beforeUpdate', () => {
+            if (segments.length === 0) return;
+            
+            let connectedTrunk = [];
+            let curr = segments[segments.length - 1];
+            connectedTrunk.push(curr);
+            while (true) { 
+                let j = joints.find(jnt => jnt.lower === curr && !jnt.broken); 
+                if (j && j.upper) { curr = j.upper; connectedTrunk.push(curr); } else break; 
+            }
+            
+            let topConnected = connectedTrunk[connectedTrunk.length - 1];
+            let targetY = height * 0.35; 
+            
+            if (topConnected && topConnected.position.y > targetY) {
+                let feedSpeed = Math.min((topConnected.position.y - targetY) * 0.1, 15);
+                baseAnchor.pointA.y -= feedSpeed;
+                totalFed += feedSpeed;
+
+                // [해결 핵심] 관절 연산의 고무줄 현상을 막기 위해 본체 마디 전체를 완벽히 동시 병진 이동시킵니다.
+                for (let seg of connectedTrunk) {
+                    Body.translate(seg, { x: 0, y: -feedSpeed });
+                }
+
+                if (totalFed > segHeight) {
+                    totalFed -= segHeight;
+                    baseAnchor.pointA.y += segHeight;
+
+                    let newSeg = Bodies.rectangle(width / 2, baseAnchor.pointA.y, segWidth, segHeight, { collisionFilter: { group: bambooGroup }, frictionAir: 0.02, density: 0.05, render: { visible: false } });
+                    newSeg.leafDir = Math.random() > 0.5 ? 1 : -1;
+                    
+                    let oldBase = segments[segments.length - 1];
+                    let cL = Constraint.create({ bodyA: oldBase, bodyB: newSeg, pointA: { x: -segWidth/2 + 5, y: segHeight/2 }, pointB: { x: -segWidth/2 + 5, y: -segHeight/2 }, stiffness: 1, render: { visible: false } });
+                    let cR = Constraint.create({ bodyA: oldBase, bodyB: newSeg, pointA: { x: segWidth/2 - 5, y: segHeight/2 }, pointB: { x: segWidth/2 - 5, y: -segHeight/2 }, stiffness: 1, render: { visible: false } });
+
+                    joints.push({ upper: oldBase, lower: newSeg, cL: cL, cR: cR, broken: false });
+                    segments.push(newSeg);
+                    World.add(world, [newSeg, cL, cR]);
+                    baseAnchor.bodyB = newSeg;
+                }
+            }
+
+            // 본체 정렬 상태 상시 유지 (좌우 흔들림 억제 및 위치 고정)
+            for (let i = 0; i < connectedTrunk.length; i++) {
+                const seg = connectedTrunk[i];
+                Body.setAngle(seg, 0);
+                Body.setVelocity(seg, { x: 0, y: seg.velocity.y });
+                Body.setAngularVelocity(seg, 0);
+                Body.setPosition(seg, { x: width / 2, y: seg.position.y });
+            }
+        });
+
+        Matter.Events.on(engine, 'afterUpdate', () => {
+            if (segments.length === 0) return;
+            let connected = new Set();
+            let curr = segments[segments.length - 1]; connected.add(curr);
+            while (true) { let j = joints.find(jnt => jnt.lower === curr && !jnt.broken); if (j && j.upper) { curr = j.upper; connected.add(curr); } else break; }
+
+            for (let i = segments.length - 1; i >= 0; i--) {
+                let s = segments[i];
+                if (!connected.has(s)) {
+                    if (s.position.y > height + 1000 || s.position.x < -1000 || s.position.x > width + 1000) {
+                        World.remove(world, s);
+                        segments.splice(i, 1);
+                    }
+                }
+            }
+            for (let i = joints.length - 1; i >= 0; i--) {
+                let j = joints[i];
+                if (!segments.includes(j.upper) || !segments.includes(j.lower)) {
+                    if (!j.broken) World.remove(world, [j.cL, j.cR]);
+                    joints.splice(i, 1);
+                }
+            }
+        });
+
+        // --- 커스텀 대나무 렌더링 ---
+        Matter.Events.on(render, 'afterRender', function() {
+            const ctx = render.context;
+            ctx.strokeStyle = '#1b5e20'; ctx.lineWidth = 2;
+
+            segments.forEach(s => {
+                let topSlope = 0, bottomSlope = 0;
+                // [해결 핵심] maxSlope를 1.5로 제한하여 각도가 극단적으로 치솟을 때 탄젠트 값이 폭증하는 메쉬 찢어짐을 원천 차단
+                let maxSlope = 1.5; 
+                if (s.topCutAngle !== undefined) { topSlope = Math.max(-maxSlope, Math.min(maxSlope, Math.tan(s.topCutAngle - s.angle))); }
+                if (s.bottomCutAngle !== undefined) { bottomSlope = Math.max(-maxSlope, Math.min(maxSlope, Math.tan(s.bottomCutAngle - s.angle))); }
+
+                ctx.translate(s.position.x, s.position.y); ctx.rotate(s.angle);
+                
+                let grad = ctx.createLinearGradient(-segWidth/2, 0, segWidth/2, 0);
+                grad.addColorStop(0, '#2e7d32'); grad.addColorStop(0.3, '#4caf50'); grad.addColorStop(0.7, '#81c784'); grad.addColorStop(1, '#2e7d32');
+                ctx.fillStyle = grad; 
+                
+                ctx.beginPath();
+                ctx.moveTo(-segWidth/2, -segHeight/2 - segWidth/2 * topSlope);
+                ctx.lineTo(segWidth/2, -segHeight/2 + segWidth/2 * topSlope);
+                ctx.lineTo(segWidth/2, segHeight/2 + segWidth/2 * bottomSlope);
+                ctx.lineTo(-segWidth/2, segHeight/2 - segWidth/2 * bottomSlope);
+                ctx.closePath(); ctx.fill(); ctx.stroke();
+                
+                if (s.bottomCutAngle === undefined) { ctx.fillStyle = '#cddc39'; ctx.beginPath(); ctx.ellipse(0, segHeight/2, segWidth/2 + 2, 4, 0, 0, Math.PI*2); ctx.fill(); }
+                
+                ctx.fillStyle = '#81c784'; ctx.beginPath();
+                if (s.leafDir === 1) { ctx.moveTo(segWidth/2 - 2, 0); ctx.quadraticCurveTo(segWidth/2 + 20, -15, segWidth/2 + 35, 5); ctx.quadraticCurveTo(segWidth/2 + 15, 10, segWidth/2 - 2, 5); } 
+                else { ctx.moveTo(-segWidth/2 + 2, 0); ctx.quadraticCurveTo(-segWidth/2 - 20, -15, -segWidth/2 - 35, 5); ctx.quadraticCurveTo(-segWidth/2 - 15, 10, -segWidth/2 + 2, 5); }
+                ctx.fill();
+
+                ctx.rotate(-s.angle); ctx.translate(-s.position.x, -s.position.y);
+            });
+        });
+
+        Render.run(render); Runner.run(Runner.create(), engine);
+    </script>
+</body>
+</html>
