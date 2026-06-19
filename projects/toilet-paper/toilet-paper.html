@@ -41,7 +41,7 @@
 
         // 리소스 URL에 추가할 쿼리 문자열을 생성하여 캐시를 무효화합니다. (캐시 버스팅)
         // 페이지를 로드할 때마다 새로운 버전의 파일을 요청하게 됩니다.
-        const cacheBuster = `v=${new Date().getTime()}`;
+        const cacheBuster = `v=1.0`;
 
         // HTML에 정적으로 포함된 이미지의 src도 동적으로 변경해줍니다.
         document.getElementById('tp-roll').src = `resources/image1.png?${cacheBuster}`;
