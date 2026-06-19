@@ -145,13 +145,24 @@
         let isDragging = false; let actionLocked = null; 
         let dragStartTime = 0; 
 
+        let audioUnlocked = false;
+
         container.addEventListener('pointerdown', (e) => { 
             isDragging = true; actionLocked = null; 
             startX = e.clientX; startY = e.clientY; 
             lastX = e.clientX; lastY = e.clientY;
             currentGlobalY = e.clientY;
             dragStartTime = Date.now(); 
-            updateRipple(e.clientX, e.clientY, true); 
+            updateRipple(e.clientX, e.clientY, true);
+
+            // 모바일 브라우저의 자동 재생 정책을 해결하기 위해 첫 터치 시 오디오를 '잠금 해제'합니다.
+            if (!audioUnlocked) {
+                pullSound.play().catch(() => {}); // play()는 Promise를 반환하므로 catch로 에러를 처리합니다.
+                pullSound.pause();
+                tearSound.play().catch(() => {});
+                tearSound.pause();
+                audioUnlocked = true;
+            }
         });
 
         container.addEventListener('pointermove', (e) => {
