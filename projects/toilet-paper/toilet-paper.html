@@ -7,7 +7,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <style>
         body { margin: 0; background-color: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; touch-action: none; }
-        #app-container { position: relative; background-color: #aebfd1; width: 100%; max-width: 500px; aspect-ratio: 9 / 16; overflow: hidden; box-shadow: 0 0 50px rgba(0,0,0,0.5); cursor: grab; }
+        #app-container { position: relative; background-color: #aebfd1; width: 100%; max-width: 500px; max-height: 100%; aspect-ratio: 9 / 16; overflow: hidden; box-shadow: 0 0 50px rgba(0,0,0,0.5); cursor: grab; }
         #app-container:active { cursor: grabbing; }
         canvas { display: block; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; }
         
@@ -37,6 +37,11 @@
         // 외부 텍스처 이미지 로드
         const paperImage = new Image();
         paperImage.src = 'resources/image2.png';
+
+        // 오디오 파일 로드
+        const pullSound = new Audio('resources/music1.mp3');
+        pullSound.loop = true; // 당기는 소리는 반복 재생
+        const tearSound = new Audio('resources/music2.mp3');
 
         let currentRipple = null;
         function updateRipple(x, y, isStart = false) {
@@ -190,6 +195,9 @@
                     
                     Body.setVelocity(targetJoint.bodyB, { x: stepX * 0.4, y: Math.max(speed * 0.5, 10) });
                     Body.setAngularVelocity(targetJoint.bodyB, stepX * 0.02);
+
+                    tearSound.currentTime = 0;
+                    tearSound.play();
                     
                     const bounds = container.getBoundingClientRect();
                     spawnParticles(currentX - bounds.left, currentY - bounds.top);
@@ -204,12 +212,24 @@
             }
         });
 
-        container.addEventListener('pointerup', () => { isDragging = false; endRipple(); });
-        container.addEventListener('pointerleave', () => { isDragging = false; endRipple(); });
+        function stopDragging() {
+            isDragging = false; 
+            endRipple(); 
+            if (!pullSound.paused) {
+                pullSound.pause();
+                pullSound.currentTime = 0;
+            }
+        }
+
+        container.addEventListener('pointerup', stopDragging);
+        container.addEventListener('pointerleave', stopDragging);
 
         let pullFrames = 0;
         Matter.Events.on(engine, 'beforeUpdate', () => {
             if (isDragging && actionLocked === 'pull') {
+                if (pullSound.paused) {
+                    pullSound.play();
+                }
                 pullFrames++;
                 
                 let pullDistance = currentGlobalY - startY;
@@ -228,6 +248,10 @@
                 pullFrames = 0;
                 if (topAnchor.pointA.y > SPAWN_Y) {
                     topAnchor.pointA.y = Math.max(SPAWN_Y, topAnchor.pointA.y - 3);
+                }
+                if (!pullSound.paused) {
+                    pullSound.pause();
+                    pullSound.currentTime = 0;
                 }
             }
         });
@@ -314,10 +338,11 @@
                         ctx.translate(segment.position.x, segment.position.y);
                         ctx.rotate(segment.angle);
                         
-                        // 탄성에 의해 이미지가 중심을 기준으로 위아래로 어긋나는 현상(절취선 불일치)을 막기 위해 
-                        // 늘어나는 높이 대신 원래의 물리적 고정 높이(segmentHeight)를 사용하고, 최소한의 여백만 줍니다.
-                        let bleedX = 2; 
-                        let bleedY = 2; 
+                        // 기존에는 탄성에 의한 절취선 불일치를 방지하기 위해 최소한의 여백(bleed)을 주었으나,
+                        // 사용자 요청에 따라 절취선과 이미지 간의 시각적 공백을 제거하기 위해 bleed 값을 0으로 설정합니다.
+                        // 이로 인해 종이의 늘어남에 따라 이미지 가장자리가 투명하게 보일 수 있습니다.
+                        let bleedX = 0; // 기존 2
+                        let bleedY = 0; // 기존 2
                         
                         let drawW = paperWidth + bleedX * 2;
                         let drawH = segmentHeight + bleedY * 2;
