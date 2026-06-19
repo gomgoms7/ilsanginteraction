@@ -47,8 +47,15 @@
         document.getElementById('tp-roll').src = `resources/image1.png?${cacheBuster}`;
 
         // 외부 텍스처 이미지 로드
-        const paperImage = new Image();
-        paperImage.src = `resources/image2.png?${cacheBuster}`;
+        const paperImage = new Image(); // paperImage 변수를 먼저 선언합니다.
+
+        // 텍스처 이미지가 완전히 로드된 후에 물리 엔진과 렌더링을 시작합니다.
+        // 이렇게 하면 렌더링 시점에 이미지가 준비되지 않아 휴지가 보이지 않는 문제를 방지할 수 있습니다.
+        paperImage.onload = () => {
+            Render.run(render); // 이미지가 로드된 후 렌더링 시작
+            Runner.run(Runner.create(), engine); // 이미지가 로드된 후 물리 엔진 시작
+        };
+        paperImage.src = `resources/image2.png?${cacheBuster}`; // onload 핸들러를 설정한 후, 이미지 로딩을 시작합니다.
 
         // 오디오 파일 로드
         const pullSound = new Audio(`resources/music1.mp3?${cacheBuster}`);
@@ -162,7 +169,6 @@
         let currentGlobalY = 0; 
         let isDragging = false; let actionLocked = null; 
         let dragStartTime = 0; 
-        let pullSoundTimeoutId = null; // 당기는 소리 지연 재생을 위한 타임아웃 ID
 
         let audioUnlocked = false;
 
@@ -225,10 +231,6 @@
                     
                     // 뜯는 액션이 발생하면, 당기는 소리는 즉시 멈춥니다.
                     // 이렇게 하면 뜯는 소리와 겹치지 않습니다.
-                    if (pullSoundTimeoutId) { // 당기기 소리 재생 타임아웃이 대기 중이면 취소합니다.
-                        clearTimeout(pullSoundTimeoutId);
-                        pullSoundTimeoutId = null;
-                    }
                     if (!pullSound.paused) {
                         pullSound.pause();
                         pullSound.currentTime = 0;
@@ -248,17 +250,13 @@
                 if(currentRipple) currentRipple.style.backgroundColor = 'rgba(255, 50, 50, 0.8)';
                 container.classList.remove('shake-anim'); void container.offsetWidth; container.classList.add('shake-anim');
             } 
-            // '당기기' 액션은 오직 아래 방향으로 드래그할 때만 판정되도록 조건을 수정합니다. (currentY > startY)
+            // '당기기' 액션은 오직 아래 방향으로 스와이프할 때만 판정되도록 조건을 수정합니다. (currentY > startY)
             else if (actionLocked !== 'pull' && (currentY - startY) > 10) {
                 // '당기기' 액션으로 판정된 시점에 소리를 재생 시작합니다.
                 actionLocked = 'pull';
-                // 0.5초 동안 당기기 상태가 유지될 때만 소리를 재생하여, 짧은 드래그에는 소리가 나지 않도록 합니다.
-                pullSoundTimeoutId = setTimeout(() => {
-                    if (isDragging && actionLocked === 'pull' && pullSound.paused) {
-                        pullSound.play();
-                    }
-                    pullSoundTimeoutId = null;
-                }, 500);
+                if (pullSound.paused) {
+                    pullSound.play();
+                }
             }
         });
 
@@ -266,10 +264,6 @@
             isDragging = false; 
             endRipple(); 
             // 사용자가 드래그를 멈추면, 'ended' 이벤트 리스너가 다음 루프를 시작하지 않으므로 소리는 현재 재생이 끝나면 자동으로 멈춥니다.
-            if (pullSoundTimeoutId) { // 드래그를 멈췄을 때 소리 재생 타임아웃이 대기 중이면 취소합니다.
-                clearTimeout(pullSoundTimeoutId);
-                pullSoundTimeoutId = null;
-            }
         }
 
         container.addEventListener('pointerup', stopDragging);
@@ -341,7 +335,10 @@
                     for (let k = 0; k < n; k++) {
                         let s = chunk[k];
                         if (k === 0) {
-                            let tl = getCorner(s, -1, -1); let tr = getCorner(s, 1, -1);
+                            const tl = getCorner(s, -1, -1); 
+                            const tr = getCorner(s, 1, -1);
+                            // 휴지가 롤에서 나오는 것처럼 보이게 하고, 롤과 휴지 사이의 끊어진 느낌을 없애기 위해
+                            // 최상단 휴지의 렌더링 시작점 Y좌표를 80으로 고정합니다.
                             if (s === segments[0]) { tl.y = 80; tr.y = 80; }
                             lefts.push(tl); rights.push(tr);
                         } else {
@@ -392,12 +389,20 @@
                         let drawW = paperWidth + bleedX * 2;
                         let drawH = segmentHeight + bleedY * 2;
 
-                        ctx.drawImage(paperImage, -drawW / 2, -drawH / 2, drawW, drawH);
+                        // 최상단 휴지의 경우, 렌더링 시작점을 강제로 위로 올렸기 때문에(y=80),
+                        // 물리적 본체(y=110 시작)와 렌더링된 폴리곤 사이에 빈 공간이 생깁니다.
+                        // 이 빈 공간에도 텍스처를 그려주기 위해, 최상단 휴지에 한해 이미지를 위로 더 길게 늘여서 그립니다.
+                        if (segment === segments[0]) {
+                            const yOffset = SPAWN_Y - 80; // 110 - 80 = 30px의 렌더링 오프셋
+                            // 이미지를 yOffset만큼 위로 올리고, 높이를 yOffset만큼 늘려서 빈 공간을 채웁니다.
+                            ctx.drawImage(paperImage, -drawW / 2, -drawH / 2 - yOffset, drawW, drawH + yOffset);
+                        } else {
+                            ctx.drawImage(paperImage, -drawW / 2, -drawH / 2, drawW, drawH);
+                        }
                         
                         let intensity = Math.abs(Math.cos(segment.angle)); 
                         ctx.fillStyle = `rgba(0, 0, 0, ${0.15 * (1 - intensity)})`;
                         ctx.fillRect(-drawW / 2, -drawH / 2, drawW, drawH);
-                        
                         ctx.restore();
                     }
 
@@ -421,7 +426,6 @@
             }
         });
 
-        Render.run(render); Runner.run(Runner.create(), engine);
     </script>
 </body>
 </html>
