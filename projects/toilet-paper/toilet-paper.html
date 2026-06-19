@@ -40,8 +40,14 @@
 
         // 오디오 파일 로드
         const pullSound = new Audio('resources/music1.mp3');
-        pullSound.loop = true; // 당기는 소리는 반복 재생
+        pullSound.loop = false; // 루프를 직접 제어하여, 당기기를 멈춰도 소리가 자연스럽게 끝나도록 합니다.
         const tearSound = new Audio('resources/music2.mp3');
+
+        // 'pull' 사운드가 끝나면, 사용자가 여전히 당기고 있을 경우 다시 재생합니다.
+        pullSound.addEventListener('ended', () => {
+            // isDragging과 actionLocked 상태를 확인하여 원치 않는 재생을 방지합니다.
+            if (isDragging && actionLocked === 'pull') pullSound.play();
+        });
 
         let currentRipple = null;
         function updateRipple(x, y, isStart = false) {
@@ -226,10 +232,7 @@
         function stopDragging() {
             isDragging = false; 
             endRipple(); 
-            if (!pullSound.paused) {
-                pullSound.pause();
-                pullSound.currentTime = 0;
-            }
+            // 사용자가 드래그를 멈추면, 'ended' 이벤트 리스너가 다음 루프를 시작하지 않으므로 소리는 현재 재생이 끝나면 자동으로 멈춥니다.
         }
 
         container.addEventListener('pointerup', stopDragging);
@@ -260,10 +263,7 @@
                 if (topAnchor.pointA.y > SPAWN_Y) {
                     topAnchor.pointA.y = Math.max(SPAWN_Y, topAnchor.pointA.y - 3);
                 }
-                if (!pullSound.paused) {
-                    pullSound.pause();
-                    pullSound.currentTime = 0;
-                }
+                // isDragging이 false가 되면 'ended' 이벤트 핸들러가 재귀적으로 play()를 호출하지 않으므로, 소리는 재생이 끝나면 멈춥니다.
             }
         });
 
