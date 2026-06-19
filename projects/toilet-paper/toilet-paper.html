@@ -162,6 +162,7 @@
         let currentGlobalY = 0; 
         let isDragging = false; let actionLocked = null; 
         let dragStartTime = 0; 
+        let pullSoundTimeoutId = null; // 당기는 소리 지연 재생을 위한 타임아웃 ID
 
         let audioUnlocked = false;
 
@@ -224,6 +225,10 @@
                     
                     // 뜯는 액션이 발생하면, 당기는 소리는 즉시 멈춥니다.
                     // 이렇게 하면 뜯는 소리와 겹치지 않습니다.
+                    if (pullSoundTimeoutId) { // 당기기 소리 재생 타임아웃이 대기 중이면 취소합니다.
+                        clearTimeout(pullSoundTimeoutId);
+                        pullSoundTimeoutId = null;
+                    }
                     if (!pullSound.paused) {
                         pullSound.pause();
                         pullSound.currentTime = 0;
@@ -243,12 +248,17 @@
                 if(currentRipple) currentRipple.style.backgroundColor = 'rgba(255, 50, 50, 0.8)';
                 container.classList.remove('shake-anim'); void container.offsetWidth; container.classList.add('shake-anim');
             } 
-            else if (actionLocked !== 'pull' && Math.abs(currentY - startY) > 10) {
+            // '당기기' 액션은 오직 아래 방향으로 드래그할 때만 판정되도록 조건을 수정합니다. (currentY > startY)
+            else if (actionLocked !== 'pull' && (currentY - startY) > 10) {
                 // '당기기' 액션으로 판정된 시점에 소리를 재생 시작합니다.
                 actionLocked = 'pull';
-                if (pullSound.paused) {
-                    pullSound.play();
-                }
+                // 0.5초 동안 당기기 상태가 유지될 때만 소리를 재생하여, 짧은 드래그에는 소리가 나지 않도록 합니다.
+                pullSoundTimeoutId = setTimeout(() => {
+                    if (isDragging && actionLocked === 'pull' && pullSound.paused) {
+                        pullSound.play();
+                    }
+                    pullSoundTimeoutId = null;
+                }, 500);
             }
         });
 
@@ -256,6 +266,10 @@
             isDragging = false; 
             endRipple(); 
             // 사용자가 드래그를 멈추면, 'ended' 이벤트 리스너가 다음 루프를 시작하지 않으므로 소리는 현재 재생이 끝나면 자동으로 멈춥니다.
+            if (pullSoundTimeoutId) { // 드래그를 멈췄을 때 소리 재생 타임아웃이 대기 중이면 취소합니다.
+                clearTimeout(pullSoundTimeoutId);
+                pullSoundTimeoutId = null;
+            }
         }
 
         container.addEventListener('pointerup', stopDragging);
