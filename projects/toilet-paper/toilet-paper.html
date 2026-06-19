@@ -222,6 +222,13 @@
                     if (!targetJoint.leftTorn) { World.remove(world, targetJoint.cLeft); targetJoint.leftTorn = true; }
                     if (!targetJoint.rightTorn) { World.remove(world, targetJoint.cRight); targetJoint.rightTorn = true; }
                     
+                    // 뜯는 액션이 발생하면, 당기는 소리는 즉시 멈춥니다.
+                    // 이렇게 하면 뜯는 소리와 겹치지 않습니다.
+                    if (!pullSound.paused) {
+                        pullSound.pause();
+                        pullSound.currentTime = 0;
+                    }
+
                     Body.setVelocity(targetJoint.bodyB, { x: stepX * 0.4, y: Math.max(speed * 0.5, 10) });
                     Body.setAngularVelocity(targetJoint.bodyB, stepX * 0.02);
 
@@ -237,7 +244,11 @@
                 container.classList.remove('shake-anim'); void container.offsetWidth; container.classList.add('shake-anim');
             } 
             else if (actionLocked !== 'pull' && Math.abs(currentY - startY) > 10) {
+                // '당기기' 액션으로 판정된 시점에 소리를 재생 시작합니다.
                 actionLocked = 'pull';
+                if (pullSound.paused) {
+                    pullSound.play();
+                }
             }
         });
 
@@ -253,9 +264,6 @@
         let pullFrames = 0;
         Matter.Events.on(engine, 'beforeUpdate', () => {
             if (isDragging && actionLocked === 'pull') {
-                if (pullSound.paused) {
-                    pullSound.play();
-                }
                 pullFrames++;
                 
                 let pullDistance = currentGlobalY - startY;
