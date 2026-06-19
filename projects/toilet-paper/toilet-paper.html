@@ -36,11 +36,12 @@
 
         // 외부 텍스처 이미지 로드
         const paperImage = new Image();
-        paperImage.src = '../resources/image2.png';
+        paperImage.src = 'resources/image2.png';
 
-        const pullSound = new Audio('../resources/music1.mp3');
-        pullSound.loop = true; 
-        const tearSound = new Audio('../resources/music2.mp3');
+        // 오디오 파일 로드
+        const pullSound = new Audio('resources/music1.mp3');
+        pullSound.loop = true; // 당기는 소리는 반복 재생
+        const tearSound = new Audio('resources/music2.mp3');
 
         let currentRipple = null;
         function updateRipple(x, y, isStart = false) {
